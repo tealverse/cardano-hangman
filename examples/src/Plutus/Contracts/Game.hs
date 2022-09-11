@@ -1,63 +1,73 @@
-{-# LANGUAGE AllowAmbiguousTypes        #-}
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE DeriveAnyClass             #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE NoImplicitPrelude          #-}
-{-# LANGUAGE PartialTypeSignatures      #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE ViewPatterns               #-}
-
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 -- | A guessing game
 module Plutus.Contracts.Game
-    ( lock
-    , guess
-    , game
-    , GameSchema
-    , GuessParams(..)
-    , LockParams(..)
-    -- * Scripts
-    , gameValidator
-    , hashString
-    , clearString
-    -- * Address
-    , gameAddress
-    , validateGuess
-    -- * Traces
-    , guessTrace
-    , lockTrace
-    , correctGuessTrace
-    ) where
+  ( lock,
+    guess,
+    game,
+    GameSchema,
+    GuessParams (..),
+    LockParams (..),
 
-import           Control.Monad         (void)
+    -- * Scripts
+    gameValidator,
+    hashString,
+    clearString,
+
+    -- * Address
+    gameAddress,
+    validateGuess,
+
+    -- * Traces
+    guessTrace,
+    lockTrace,
+    correctGuessTrace,
+
+    guessGameScript
+  )
+where
+
+import Control.Monad (void)
 import qualified Data.ByteString.Char8 as C
-import           Data.Map              (Map)
-import qualified Data.Map              as Map
-import           Data.Maybe            (catMaybes)
-import           Plutus.V1.Ledger.Api  (Address, ScriptContext, Validator, Value, Datum(Datum))
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Maybe (catMaybes)
 import qualified Ledger
-import qualified Ledger.Ada            as Ada
-import qualified Ledger.Constraints    as Constraints
-import           Ledger.Tx             (ChainIndexTxOut (..))
-import           Playground.Contract
-import           Plutus.Contract
-import           Plutus.Contract.Trace as X
-import qualified PlutusTx
-import           PlutusTx.Prelude      hiding (pure, (<$>))
-import qualified Prelude               as Haskell
-import           Plutus.Trace.Emulator (EmulatorTrace)
-import qualified Plutus.Trace.Emulator as Trace
+import qualified Ledger.Ada as Ada
+import qualified Ledger.Constraints as Constraints
+import Ledger.Tx (ChainIndexTxOut (..))
+import Playground.Contract
+import Plutus.Contract
+import Plutus.Contract.Trace as X
 import qualified Plutus.Script.Utils.V1.Typed.Scripts as Scripts
+import Plutus.Trace.Emulator (EmulatorTrace)
+import qualified Plutus.Trace.Emulator as Trace
+import Plutus.V1.Ledger.Api (Address, Datum (Datum), ScriptContext, Validator, Value)
+import qualified PlutusTx
+import PlutusTx.Prelude hiding (pure, (<$>))
+import qualified Prelude as Haskell
+import qualified Plutus.V1.Ledger.Scripts as Plutus
+import qualified Data.ByteString.Short as SBS
+import qualified Data.ByteString.Lazy as LBS
+import Cardano.Api.Shelley (PlutusScript (..), PlutusScriptV1)
+import Codec.Serialise
 
 newtype HashedString = HashedString BuiltinByteString deriving newtype (PlutusTx.ToData, PlutusTx.FromData, PlutusTx.UnsafeFromData)
 
@@ -68,19 +78,22 @@ newtype ClearString = ClearString BuiltinByteString deriving newtype (PlutusTx.T
 PlutusTx.makeLift ''ClearString
 
 type GameSchema =
-        Endpoint "lock" LockParams
-        .\/ Endpoint "guess" GuessParams
+  Endpoint "lock" LockParams
+    .\/ Endpoint "guess" GuessParams
 
 data Game
+
 instance Scripts.ValidatorTypes Game where
-    type instance RedeemerType Game = ClearString
-    type instance DatumType Game = HashedString
+  type RedeemerType Game = ClearString
+  type DatumType Game = HashedString
 
 gameInstance :: Scripts.TypedValidator Game
-gameInstance = Scripts.mkTypedValidator @Game
-    $$(PlutusTx.compile [|| validateGuess ||])
-    $$(PlutusTx.compile [|| wrap ||]) where
-        wrap = Scripts.mkUntypedValidator @HashedString @ClearString
+gameInstance =
+  Scripts.mkTypedValidator @Game
+    $$(PlutusTx.compile [||validateGuess||])
+    $$(PlutusTx.compile [||wrap||])
+  where
+    wrap = Scripts.mkUntypedValidator @HashedString @ClearString
 
 -- create a data script for the guessing game by hashing the string
 -- and lifting the hash to its on-chain representation
@@ -109,48 +122,48 @@ gameAddress = Ledger.scriptAddress gameValidator
 
 -- | Parameters for the "lock" endpoint
 data LockParams = LockParams
-    { secretWord :: Haskell.String
-    , amount     :: Value
-    }
-    deriving stock (Haskell.Eq, Haskell.Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, ToSchema, ToArgument)
+  { secretWord :: Haskell.String,
+    amount :: Value
+  }
+  deriving stock (Haskell.Eq, Haskell.Show, Generic)
+  deriving anyclass (FromJSON, ToJSON, ToSchema, ToArgument)
 
 --  | Parameters for the "guess" endpoint
 newtype GuessParams = GuessParams
-    { guessWord :: Haskell.String
-    }
-    deriving stock (Haskell.Eq, Haskell.Show, Generic)
-    deriving anyclass (FromJSON, ToJSON, ToSchema, ToArgument)
+  { guessWord :: Haskell.String
+  }
+  deriving stock (Haskell.Eq, Haskell.Show, Generic)
+  deriving anyclass (FromJSON, ToJSON, ToSchema, ToArgument)
 
 -- | The "lock" contract endpoint. See note [Contract endpoints]
 lock :: AsContractError e => Promise () GameSchema e ()
 lock = endpoint @"lock" @LockParams $ \(LockParams secret amt) -> do
-    logInfo @Haskell.String $ "Pay " <> Haskell.show amt <> " to the script"
-    let tx         = Constraints.mustPayToTheScript (hashString secret) amt
-    void (submitTxConstraints gameInstance tx)
+  logInfo @Haskell.String $ "Pay " <> Haskell.show amt <> " to the script"
+  let tx = Constraints.mustPayToTheScript (hashString secret) amt
+  void (submitTxConstraints gameInstance tx)
 
 -- | The "guess" contract endpoint. See note [Contract endpoints]
 guess :: AsContractError e => Promise () GameSchema e ()
 guess = endpoint @"guess" @GuessParams $ \(GuessParams theGuess) -> do
-    -- Wait for script to have a UTxO of a least 1 lovelace
-    logInfo @Haskell.String "Waiting for script to have a UTxO of at least 1 lovelace"
-    utxos <- fundsAtAddressGeq gameAddress (Ada.lovelaceValueOf 1)
+  -- Wait for script to have a UTxO of a least 1 lovelace
+  logInfo @Haskell.String "Waiting for script to have a UTxO of at least 1 lovelace"
+  utxos <- fundsAtAddressGeq gameAddress (Ada.lovelaceValueOf 1)
 
-    let redeemer = clearString theGuess
-        tx       = collectFromScript utxos redeemer
+  let redeemer = clearString theGuess
+      tx = collectFromScript utxos redeemer
 
-    -- Log a message saying if the secret word was correctly guessed
-    let hashedSecretWord = findSecretWordValue utxos
-        isCorrectSecretWord = fmap (`isGoodGuess` redeemer) hashedSecretWord == Just True
-    if isCorrectSecretWord
-        then logWarn @Haskell.String "Correct secret word! Submitting the transaction"
-        else logWarn @Haskell.String "Incorrect secret word, but still submiting the transaction"
+  -- Log a message saying if the secret word was correctly guessed
+  let hashedSecretWord = findSecretWordValue utxos
+      isCorrectSecretWord = fmap (`isGoodGuess` redeemer) hashedSecretWord == Just True
+  if isCorrectSecretWord
+    then logWarn @Haskell.String "Correct secret word! Submitting the transaction"
+    else logWarn @Haskell.String "Incorrect secret word, but still submiting the transaction"
 
-    -- This is only for test purposes to have a possible failing transaction.
-    -- In a real use-case, we would not submit the transaction if the guess is
-    -- wrong.
-    logInfo @Haskell.String "Submitting transaction to guess the secret word"
-    void (submitTxConstraintsSpending gameInstance utxos tx)
+  -- This is only for test purposes to have a possible failing transaction.
+  -- In a real use-case, we would not submit the transaction if the guess is
+  -- wrong.
+  logInfo @Haskell.String "Submitting transaction to guess the secret word"
+  void (submitTxConstraintsSpending gameInstance utxos tx)
 
 -- | Find the secret word in the Datum of the UTxOs
 findSecretWordValue :: Map TxOutRef ChainIndexTxOut -> Maybe HashedString
@@ -165,22 +178,22 @@ secretWordValue o = do
 
 game :: AsContractError e => Contract () GameSchema e ()
 game = do
-    logInfo @Haskell.String "Waiting for guess or lock endpoint..."
-    selectList [lock, guess] >> game
+  logInfo @Haskell.String "Waiting for guess or lock endpoint..."
+  selectList [lock, guess] >> game
 
 lockTrace :: Wallet -> Haskell.String -> EmulatorTrace ()
 lockTrace wallet secretWord = do
-    hdl <- Trace.activateContractWallet wallet (lock @ContractError)
-    void $ Trace.waitNSlots 1
-    Trace.callEndpoint @"lock" hdl (LockParams secretWord (Ada.adaValueOf 10))
-    void $ Trace.waitNSlots 1
+  hdl <- Trace.activateContractWallet wallet (lock @ContractError)
+  void $ Trace.waitNSlots 1
+  Trace.callEndpoint @"lock" hdl (LockParams secretWord (Ada.adaValueOf 10))
+  void $ Trace.waitNSlots 1
 
 guessTrace :: Wallet -> Haskell.String -> EmulatorTrace ()
 guessTrace wallet guessWord = do
-    hdl <- Trace.activateContractWallet wallet (guess @ContractError)
-    void $ Trace.waitNSlots 1
-    Trace.callEndpoint @"guess" hdl (GuessParams guessWord)
-    void $ Trace.waitNSlots 1
+  hdl <- Trace.activateContractWallet wallet (guess @ContractError)
+  void $ Trace.waitNSlots 1
+  Trace.callEndpoint @"guess" hdl (GuessParams guessWord)
+  void $ Trace.waitNSlots 1
 
 correctGuessTrace :: EmulatorTrace ()
 correctGuessTrace = do
@@ -196,3 +209,12 @@ correctGuessTrace = do
   void $ Trace.waitNSlots 1
   Trace.callEndpoint @"guess" h2 (GuessParams secret)
   void $ Trace.waitNSlots 1
+
+script :: Plutus.Script
+script = Plutus.unValidatorScript gameValidator
+
+guessGameScriptShortBs :: SBS.ShortByteString
+guessGameScriptShortBs = SBS.toShort . LBS.toStrict $ serialise script
+
+guessGameScript :: PlutusScript PlutusScriptV1
+guessGameScript = PlutusScriptSerialised guessGameScriptShortBs

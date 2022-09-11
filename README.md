@@ -9,3 +9,10 @@ cabal --enable-nix update
 cabal --enable-nix build plutus-example
 codium .
 ```
+
+
+```
+cabal configure -f defer-plugin-errors
+
+cabal configure
+```
